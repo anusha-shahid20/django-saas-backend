@@ -1,5 +1,17 @@
 from rest_framework import serializers
-from .models import Project, Task
+from .models import Project, Task, Company, UserProfile
+
+
+class CompanySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Company
+        fields = '__all__'
+
+
+class UserProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserProfile
+        fields = '__all__'
 
 
 class ProjectSerializer(serializers.ModelSerializer):
