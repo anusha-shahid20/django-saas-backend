@@ -22,8 +22,11 @@ class ProjectListAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        # Only fetch projects that belong to the user's company (tenant isolation)
-        projects = Project.objects.filter(company=request.user.profile.company)
+        # Only fetch non-deleted projects that belong to the user's company
+        projects = Project.objects.filter(
+            company=request.user.profile.company,
+            is_deleted=False
+        )
         serializer = ProjectSerializer(projects, many=True)
         return Response(serializer.data)
 
@@ -44,10 +47,14 @@ class ProjectDetailAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get_object(self, pk, user):
-        """Helper: fetch a project by ID, but only from the user's own company."""
+        """Helper: fetch a non-deleted project by ID from the user's own company."""
         try:
-            # Filter by both ID and company to prevent cross-tenant access
-            return Project.objects.get(pk=pk, company=user.profile.company)
+            # Filter by ID, company, and is_deleted=False to prevent cross-tenant access
+            return Project.objects.get(
+                pk=pk,
+                company=user.profile.company,
+                is_deleted=False
+            )
         except Project.DoesNotExist:
             return None
 
@@ -72,7 +79,9 @@ class ProjectDetailAPIView(APIView):
         project = self.get_object(pk, request.user)
         if project is None:
             return Response({"error": "Project not found"}, status=404)
-        project.delete()
+        # Soft delete: mark as deleted instead of removing from the database
+        project.is_deleted = True
+        project.save()
         return Response({"message": "Project deleted"}, status=204)
 
 
@@ -87,8 +96,11 @@ class TaskListAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        # Filter tasks through the related project's company (tenant isolation)
-        tasks = Task.objects.filter(project__company=request.user.profile.company)
+        # Filter tasks through the related project's company, skipping deleted projects
+        tasks = Task.objects.filter(
+            project__company=request.user.profile.company,
+            project__is_deleted=False
+        )
         serializer = TaskSerializer(tasks, many=True)
         return Response(serializer.data)
 
@@ -98,7 +110,11 @@ class TaskListAPIView(APIView):
             # Make sure the project being assigned belongs to the user's company
             project_id = request.data.get('project')
             try:
-                project = Project.objects.get(pk=project_id, company=request.user.profile.company)
+                project = Project.objects.get(
+                    pk=project_id,
+                    company=request.user.profile.company,
+                    is_deleted=False
+                )
             except Project.DoesNotExist:
                 return Response(
                     {"error": "Project not found in your company"},
@@ -119,8 +135,12 @@ class TaskDetailAPIView(APIView):
     def get_object(self, pk, user):
         """Helper: fetch a task by ID, but only from the user's own company."""
         try:
-            # Filter by project's company to prevent cross-tenant access
-            return Task.objects.get(pk=pk, project__company=user.profile.company)
+            # Filter by project's company and skip deleted projects
+            return Task.objects.get(
+                pk=pk,
+                project__company=user.profile.company,
+                project__is_deleted=False
+            )
         except Task.DoesNotExist:
             return None
 
@@ -169,8 +189,12 @@ class TaskStatusUpdateAPIView(APIView):
 
     def patch(self, request, pk):
         try:
-            # Only allow access to tasks from the user's own company
-            task = Task.objects.get(pk=pk, project__company=request.user.profile.company)
+            # Only allow access to non-deleted tasks from the user's own company
+            task = Task.objects.get(
+                pk=pk,
+                project__company=request.user.profile.company,
+                project__is_deleted=False
+            )
         except Task.DoesNotExist:
             return Response({"error": "Task not found"}, status=404)
 

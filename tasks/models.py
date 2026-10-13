@@ -43,6 +43,10 @@ class Project(models.Model):
         null=True,
         blank=True
     )
+    is_deleted = models.BooleanField(default=False)
+
+    def __str__(self):
+        return self.name
 
     def __str__(self):
         return self.name
@@ -63,3 +67,18 @@ class Task(models.Model):
 
     def __str__(self):
         return self.title
+class AuditLog(models.Model):
+    ACTION_CHOICES = [
+        ('create', 'Create'),
+        ('update', 'Update'),
+        ('delete', 'Delete'),
+    ]
+
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+    action = models.CharField(max_length=20, choices=ACTION_CHOICES)
+    model_name = models.CharField(max_length=100)
+    object_id = models.IntegerField()
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.user} {self.action} {self.model_name} #{self.object_id}"        
