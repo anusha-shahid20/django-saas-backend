@@ -2,59 +2,81 @@ from django.http import HttpResponse
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from .models import Project, Task, Company, UserProfile
-from .serializers import ProjectSerializer, TaskSerializer, CompanySerializer, UserProfileSerializer
-
+from rest_framework.parsers import MultiPartParser, FormParser
+from .models import Project, Task, Company, UserProfile, Note
+from .serializers import ProjectSerializer, TaskSerializer, CompanySerializer, UserProfileSerializer, NoteSerializer
 
 def hello_backend(request):
-    """Simple test view that returns a plain text response."""
     return HttpResponse("Hello Backend")
+
+
+# ============ NOTE VIEWS ============
+
+class NoteListAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        notes = Note.objects.filter(company=request.user.profile.company)
+        serializer = NoteSerializer(notes, many=True)
+        return Response(serializer.data)
+
+    def post(self, request):
+        serializer = NoteSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save(company=request.user.profile.company)
+            return Response(serializer.data, status=201)
+        return Response(serializer.errors, status=400)
+
+class NoteDetailAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get_object(self, pk, user):
+        try:
+            return Note.objects.get(pk=pk, company=user.profile.company)
+        except Note.DoesNotExist:
+            return None
+
+    def get(self, request, pk):
+        note = self.get_object(pk, request.user)
+        if note is None:
+            return Response({"error": "Note not found"}, status=404)
+        serializer = NoteSerializer(note)
+        return Response(serializer.data)
+
+    def put(self, request, pk):
+        note = self.get_object(pk, request.user)
+        if note is None:
+            return Response({"error": "Note not found"}, status=404)
+        serializer = NoteSerializer(note, data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=400)
 
 
 # ============ PROJECT VIEWS ============
 
 class ProjectListAPIView(APIView):
-    """
-    Handles listing and creating projects.
-    GET  -> returns all projects belonging to the current user's company.
-    POST -> creates a new project for the current user's company.
-    """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        # Only fetch non-deleted projects that belong to the user's company
-        projects = Project.objects.filter(
-            company=request.user.profile.company,
-            is_deleted=False
-        )
+        projects = Project.objects.filter(company=request.user.profile.company, is_deleted=False)
         serializer = ProjectSerializer(projects, many=True)
         return Response(serializer.data)
 
     def post(self, request):
         serializer = ProjectSerializer(data=request.data)
         if serializer.is_valid():
-            # Automatically assign the project to the user's company
             serializer.save(company=request.user.profile.company)
             return Response(serializer.data, status=201)
         return Response(serializer.errors, status=400)
 
-
 class ProjectDetailAPIView(APIView):
-    """
-    Handles retrieve, update, and delete for a single project.
-    Only projects belonging to the current user's company are accessible.
-    """
     permission_classes = [IsAuthenticated]
 
     def get_object(self, pk, user):
-        """Helper: fetch a non-deleted project by ID from the user's own company."""
         try:
-            # Filter by ID, company, and is_deleted=False to prevent cross-tenant access
-            return Project.objects.get(
-                pk=pk,
-                company=user.profile.company,
-                is_deleted=False
-            )
+            return Project.objects.get(pk=pk, company=user.profile.company, is_deleted=False)
         except Project.DoesNotExist:
             return None
 
@@ -79,7 +101,6 @@ class ProjectDetailAPIView(APIView):
         project = self.get_object(pk, request.user)
         if project is None:
             return Response({"error": "Project not found"}, status=404)
-        # Soft delete: mark as deleted instead of removing from the database
         project.is_deleted = True
         project.save()
         return Response({"message": "Project deleted"}, status=204)
@@ -88,59 +109,31 @@ class ProjectDetailAPIView(APIView):
 # ============ TASK VIEWS ============
 
 class TaskListAPIView(APIView):
-    """
-    Handles listing and creating tasks.
-    GET  -> returns all tasks whose project belongs to the user's company.
-    POST -> creates a new task, but only under a project the user owns.
-    """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        # Filter tasks through the related project's company, skipping deleted projects
-        tasks = Task.objects.filter(
-            project__company=request.user.profile.company,
-            project__is_deleted=False
-        )
+        tasks = Task.objects.filter(project__company=request.user.profile.company, project__is_deleted=False)
         serializer = TaskSerializer(tasks, many=True)
         return Response(serializer.data)
 
     def post(self, request):
         serializer = TaskSerializer(data=request.data)
         if serializer.is_valid():
-            # Make sure the project being assigned belongs to the user's company
             project_id = request.data.get('project')
             try:
-                project = Project.objects.get(
-                    pk=project_id,
-                    company=request.user.profile.company,
-                    is_deleted=False
-                )
+                Project.objects.get(pk=project_id, company=request.user.profile.company, is_deleted=False)
             except Project.DoesNotExist:
-                return Response(
-                    {"error": "Project not found in your company"},
-                    status=400
-                )
+                return Response({"error": "Project not found in your company"}, status=400)
             serializer.save()
             return Response(serializer.data, status=201)
         return Response(serializer.errors, status=400)
 
-
 class TaskDetailAPIView(APIView):
-    """
-    Handles retrieve, update, partial update, and delete for a single task.
-    Only tasks belonging to the user's company are accessible.
-    """
     permission_classes = [IsAuthenticated]
 
     def get_object(self, pk, user):
-        """Helper: fetch a task by ID, but only from the user's own company."""
         try:
-            # Filter by project's company and skip deleted projects
-            return Task.objects.get(
-                pk=pk,
-                project__company=user.profile.company,
-                project__is_deleted=False
-            )
+            return Task.objects.get(pk=pk, project__company=user.profile.company, project__is_deleted=False)
         except Task.DoesNotExist:
             return None
 
@@ -165,7 +158,6 @@ class TaskDetailAPIView(APIView):
         task = self.get_object(pk, request.user)
         if task is None:
             return Response({"error": "Task not found"}, status=404)
-        # partial=True allows updating only some fields instead of all
         serializer = TaskSerializer(task, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
@@ -181,32 +173,39 @@ class TaskDetailAPIView(APIView):
 
 
 class TaskStatusUpdateAPIView(APIView):
-    """
-    Handles updating only the status of a task.
-    PATCH -> changes the status of a task belonging to the user's company.
-    """
     permission_classes = [IsAuthenticated]
 
     def patch(self, request, pk):
         try:
-            # Only allow access to non-deleted tasks from the user's own company
-            task = Task.objects.get(
-                pk=pk,
-                project__company=request.user.profile.company,
-                project__is_deleted=False
-            )
+            task = Task.objects.get(pk=pk, project__company=request.user.profile.company, project__is_deleted=False)
         except Task.DoesNotExist:
             return Response({"error": "Task not found"}, status=404)
 
         new_status = request.data.get('status')
-        # Validate that the new status is one of the allowed choices
         if new_status not in ['pending', 'in_progress', 'completed']:
-            return Response(
-                {"error": "Invalid status. Choose from: pending, in_progress, completed"},
-                status=400
-            )
+            return Response({"error": "Invalid status. Choose from: pending, in_progress, completed"}, status=400)
 
         task.status = new_status
         task.save()
         serializer = TaskSerializer(task)
         return Response(serializer.data)
+
+
+# ============ FILE UPLOAD VIEW ============
+
+class FileUploadAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = (MultiPartParser, FormParser)
+
+    def post(self, request, *args, **kwargs):
+        file_obj = request.FILES.get('file')
+        if not file_obj:
+            return Response({"error": "No file provided"}, status=400)
+        
+        # In a real app, you would save this to AWS S3, Cloudinary, etc.
+        # For this test, we will just return the file name to confirm it uploaded.
+        return Response({
+            "message": "File uploaded successfully", 
+            "filename": file_obj.name,
+            "size": file_obj.size
+        }, status=201)

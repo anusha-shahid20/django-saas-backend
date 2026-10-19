@@ -81,4 +81,13 @@ class AuditLog(models.Model):
     timestamp = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.user} {self.action} {self.model_name} #{self.object_id}"        
+        return f"{self.user} {self.action} {self.model_name} #{self.object_id}" 
+class Note(models.Model):
+    title = models.CharField(max_length=200)
+    content = models.TextField(blank=True)
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='notes')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.title               
