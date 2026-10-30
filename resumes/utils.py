@@ -1,6 +1,7 @@
 import PyPDF2
 import docx
 import os
+import re
 
 # A universal list of skills covering IT, Business, HR, Finance, and General fields
 COMMON_SKILLS = [
@@ -57,52 +58,66 @@ def detect_skills(text):
     
     for skill in COMMON_SKILLS:
         if skill in text_lower:
-            found_skills.append(skill.title())  # Capitalize nicely (e.g., "Python")
+            found_skills.append(skill.title())  
             
-    return list(set(found_skills)) # Remove duplicates
+    return list(set(found_skills))
 
 def calculate_score(text, skills_found):
     """
-    Strict scoring system. Rewards strong skills and real experience.
-    Does not give full marks for just having a long CV.
+    Strict, multi-factor scoring system. 
+    Requires multiple projects, certifications, and real experience.
     """
     score = 0
     text_lower = text.lower()
     
-    # 1. Skills Score (Max 40 points) - STRICT
-    # 4 points per skill, capped at 40 (Needs 10+ skills to get full 40)
-    skill_score = min(len(skills_found) * 4, 40) 
+    # 1. Skills Score (Max 30 points) - STRICT
+    # 3 points per skill, capped at 30 (Needs 10+ skills for full marks)
+    skill_score = min(len(skills_found) * 3, 30) 
     score += skill_score
 
-    # 2. Experience Score (Max 30 points) - STRICT
-    # Full 30 points ONLY for actual job. Internship gets 15. Projects get 5.
+    # 2. Experience Score (Max 25 points) - STRICT
     if any(word in text_lower for word in ['experience', 'worked at', 'job', 'company', 'employment']):
         if 'seeking' not in text_lower and 'looking for' not in text_lower:
-            score += 30 
+            score += 25 
     elif any(word in text_lower for word in ['intern', 'internship', 'volunteer']):
         score += 15 
     elif 'project' in text_lower or 'projects' in text_lower:
         score += 5 
 
-    # 3. Education Score (Max 20 points) - STRICT
-    # Must have a proper university degree
-    education_score = 0
+    # 3. Education Score (Max 15 points)
     if any(word in text_lower for word in ['university', 'college', 'bachelor', 'bs ', 'ms ', 'master']):
-        education_score += 15
-    if any(word in text_lower for word in ['certificate', 'certified', 'certification']):
-        education_score += 5
-    score += education_score
+        score += 15
 
-    # 4. CV Length Quality (Max 10 points) - LOW WEIGHTAGE
-    # Word count matters less. Only needs to be at least 150 words.
-    word_count = len(text.split())
-    if word_count > 200:
+    # 4. Projects Count (Max 15 points) - REQUIRES 4 TO 6 PROJECTS
+    project_keywords = len(re.findall(r'project', text_lower))
+    if project_keywords >= 6:
+        score += 15
+    elif project_keywords >= 4:
         score += 10
-    elif word_count > 100:
+    elif project_keywords >= 1:
         score += 5
+    
+    # 5. Certifications (Max 15 points) - MUST HAVE CERTIFICATIONS
+    cert_keywords = len(re.findall(r'certificat', text_lower))
+    if cert_keywords >= 2:
+        score += 15
+    elif cert_keywords >= 1:
+        score += 10
+    else:
+        score += 0 # No points if no certification
 
-    # Ensure the score does not exceed 100
-    return min(score, 100)
+    # FINAL DEDUCTIONS
+    # If CV is too short, deduct marks
+    if len(text.split()) < 150:
+        score -= 10
+
+    score = max(0, min(score, 100))
+    
+    # No one gets a perfect 100
+    if score >= 95:
+        score = 94
+
+    return score
 
 def generate_suggestions(skills_found, text):
     """
@@ -120,11 +135,19 @@ def generate_suggestions(skills_found, text):
     if 'university' not in text_lower and 'degree' not in text_lower and 'college' not in text_lower:
         suggestions.append("Your Education section is missing or incomplete. Add your degree and university name.")
         
-    if len(text.split()) < 100:
-        suggestions.append("Your CV is too short. Add more details about your projects, achievements, and skills.")
+    project_count = len(re.findall(r'project', text_lower))
+    if project_count < 4:
+        suggestions.append(f"You only have {project_count} projects mentioned. A strong CV should list at least 4-6 projects.")
+
+    cert_count = len(re.findall(r'certificat', text_lower))
+    if cert_count == 0:
+        suggestions.append("Add a 'Certifications' section. Having industry certifications boosts your CV significantly.")
+
+    if len(text.split()) < 150:
+        suggestions.append("Your CV is too short. Add more details about your achievements and skills.")
 
     if not suggestions:
-        suggestions.append("Your CV looks strong and professional!")
+        suggestions.append("Your CV is outstanding! It meets all the strict criteria.")
         
     return suggestions
 
@@ -141,7 +164,6 @@ def match_with_job_description(resume_text, jd_text):
     missing_skills = list(jd_skills - resume_skills)
     matched_skills = list(jd_skills.intersection(resume_skills))
     
-    # Calculate Match Percentage based on how many JD skills the resume has
     match_percentage = (len(matched_skills) / len(jd_skills)) * 100
     
     return {
