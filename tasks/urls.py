@@ -3,6 +3,9 @@ from . import views
 
 urlpatterns = [
     path('hello/', views.hello_backend, name='hello_backend'),
+    path('api/signup/', views.SignupAPIView.as_view(), name='signup'),
+    path('api/add-employee/', views.AddEmployeeAPIView.as_view(), name='add-employee'),
+    path('api/change-password/', views.ChangePasswordAPIView.as_view(), name='change-password'), # <-- New URL
     
     # Projects
     path('api/projects/', views.ProjectListAPIView.as_view(), name='project-list'),

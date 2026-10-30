@@ -3,11 +3,103 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
+from django.contrib.auth.models import User
+from django.db import transaction
 from .models import Project, Task, Company, UserProfile, Note
 from .serializers import ProjectSerializer, TaskSerializer, CompanySerializer, UserProfileSerializer, NoteSerializer
 
+
 def hello_backend(request):
+    """Simple test view that returns a plain text response."""
     return HttpResponse("Hello Backend")
+
+
+# ============ SIGNUP VIEW ============
+
+class SignupAPIView(APIView):
+    permission_classes = [] 
+    
+    def post(self, request):
+        username = request.data.get('username')
+        password = request.data.get('password')
+        email = request.data.get('email', '')
+        company_name = request.data.get('company_name')
+
+        if not username or not password or not company_name:
+            return Response({"error": "Username, password, and company name are required."}, status=400)
+
+        if User.objects.filter(username=username).exists():
+            return Response({"error": "Username already exists."}, status=400)
+
+        try:
+            with transaction.atomic():
+                user = User.objects.create_user(username=username, password=password, email=email)
+                company = Company.objects.create(name=company_name)
+                UserProfile.objects.create(user=user, company=company, role='admin')
+            return Response({"message": "Account created successfully!"}, status=201)
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)
+
+
+# ============ ADD EMPLOYEE VIEW ============
+
+class AddEmployeeAPIView(APIView):
+    """
+    Allows an Admin/HR to add a new employee to their own company.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if request.user.profile.role != 'admin':
+            return Response({"error": "Only Admins can add employees."}, status=403)
+
+        username = request.data.get('username')
+        password = request.data.get('password')
+
+        if not username or not password:
+            return Response({"error": "Username and password are required."}, status=400)
+
+        if User.objects.filter(username=username).exists():
+            return Response({"error": "Username already exists."}, status=400)
+
+        try:
+            with transaction.atomic():
+                user = User.objects.create_user(username=username, password=password)
+                UserProfile.objects.create(
+                    user=user, 
+                    company=request.user.profile.company, 
+                    role='employee'
+                )
+            return Response({"message": "Employee added successfully."}, status=201)
+        except Exception as e:
+            return Response({"error": str(e)}, status=500)
+
+
+# ============ CHANGE PASSWORD VIEW ============
+
+class ChangePasswordAPIView(APIView):
+    """
+    Allows a logged-in user to change their password.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        old_password = request.data.get('old_password')
+        new_password = request.data.get('new_password')
+
+        if not old_password or not new_password:
+            return Response({"error": "Both old and new passwords are required."}, status=400)
+
+        # Check if the old password matches
+        if not user.check_password(old_password):
+            return Response({"error": "Incorrect old password."}, status=400)
+
+        # Set the new password securely
+        user.set_password(new_password)
+        user.save()
+
+        return Response({"message": "Password changed successfully!"}, status=200)
 
 
 # ============ NOTE VIEWS ============
@@ -201,11 +293,4 @@ class FileUploadAPIView(APIView):
         file_obj = request.FILES.get('file')
         if not file_obj:
             return Response({"error": "No file provided"}, status=400)
-        
-        # In a real app, you would save this to AWS S3, Cloudinary, etc.
-        # For this test, we will just return the file name to confirm it uploaded.
-        return Response({
-            "message": "File uploaded successfully", 
-            "filename": file_obj.name,
-            "size": file_obj.size
-        }, status=201)
+        return Response({"message": "File uploaded successfully", "filename": file_obj.name, "size": file_obj.size}, status=201)
